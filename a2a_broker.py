@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """A2A Broker v2 - Agent-to-Agent message broker with SQLite persistence"""
-import sqlite3, json, hashlib, secrets, time, os
+import re, sqlite3, json, hashlib, secrets, time, os
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse
 import threading
@@ -9,6 +9,10 @@ DB_PATH = r"C:/Users/Thabang/symbiont/a2a.db"
 # A pending task older than this is treated as stalled. 15 min is long enough that a
 # worker mid-job (claude's scrape_build runs take minutes) does not trip it.
 STALL_SECONDS = 900
+
+# Routes reachable without a token: cross-agent discovery plus monitoring.
+# Everything else is gated by require_auth().
+PUBLIC_PATHS = {"/.well-known/agent.json", "/health/queue", "/status"}
 
 def _connect():
     """Every broker connection goes through here.
@@ -119,10 +123,27 @@ class A2AHandler(BaseHTTPRequestHandler):
         return agent if ok else None
 
 
+    def require_auth(self, path):
+        """401 unless the path is public or the bearer token is valid.
+
+        Public routes stay open for monitoring and cross-agent discovery:
+        the agent card, /health/queue and /status. Everything else needs a
+        valid Bearer <agent>:<token>.
+        """
+        if path in PUBLIC_PATHS:
+            return True
+        if self.whoami():
+            return True
+        self.send_json(401, {"error": "auth required"})
+        return False
+
     def do_GET(self):
         parsed = urlparse(self.path)
         path = parsed.path
         params = dict(p.split("=") for p in parsed.query.split("&") if "=" in p) if parsed.query else {}
+
+        if not self.require_auth(path):
+            return
 
         if path == "/.well-known/agent.json":
             self.send_json(200, {
@@ -243,6 +264,9 @@ class A2AHandler(BaseHTTPRequestHandler):
         
         parsed = urlparse(self.path)
         path = parsed.path
+
+        if not self.require_auth(path):
+            return
         auth = self.headers.get("Authorization", "")
         
         if path == "/register":
@@ -503,7 +527,13 @@ class A2AHandler(BaseHTTPRequestHandler):
             name = data.get("name")
             if name:
                 try:
-                    c.execute("CREATE TABLE IF NOT EXISTS channels_%s (id INTEGER PRIMARY KEY)" % name.replace(";", "").replace(" ", "_"))
+                    # Identifiers cannot be parameterised, so allowlist instead of stripping.
+                    safe = re.fullmatch(r"[A-Za-z0-9_]{1,32}", name or "")
+                    if not safe:
+                        conn.close()
+                        self.send_json(400, {"error": "invalid channel name"})
+                        return
+                    c.execute("CREATE TABLE IF NOT EXISTS channels_%s (id INTEGER PRIMARY KEY)" % safe.group(0))
                     conn.commit()
                     self.send_json(200, {"channel": name, "status": "created"})
                 except:
