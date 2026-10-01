@@ -24,12 +24,22 @@ def resolve(arg):
     if arg.startswith("http"):
         return arg, arg.rstrip("/").split("/")[-1].split("?")[0]
     if arg.isdigit():
-        # TikTok 404s a bare /video/<id>; the @handle is required. Caller must
-        # pass the full URL, or set TIKTOK_HANDLE for a bare id.
+        # TikTok 404s www.tiktok.com/video/<id>, but m.tiktok.com/v/<id>
+        # redirects to the canonical post and needs no @handle. Try that
+        # first so a bare id works without TIKTOK_HANDLE.
+        mobile = f"https://m.tiktok.com/v/{arg}"
+        with yt_dlp.YoutubeDL({"quiet": True, "no_warnings": True, "skip_download": True}) as y:
+            try:
+                y.extract_info(mobile, download=False)
+                return mobile, arg
+            except Exception:
+                pass
+        # Fall back to the desktop form, which needs a handle if set.
         handle = os.environ.get("TIKTOK_HANDLE", "").lstrip("@")
         if not handle:
-            sys.exit(f"bare id {arg} needs a handle: set TIKTOK_HANDLE=<handle>, "
-                     f"or pass url=https://www.tiktok.com/@<handle>/video/{arg}")
+            sys.exit(f"bare id {arg} did not resolve via m.tiktok.com/v/{arg}: "
+                     f"set TIKTOK_HANDLE=<handle>, or pass "
+                     f"url=https://www.tiktok.com/@<handle>/video/{arg}")
         return f"https://www.tiktok.com/@{handle}/video/{arg}", arg
     sys.exit(f"cannot parse: {arg!r} (expected a url or a numeric video id)")
 
