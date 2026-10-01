@@ -10,9 +10,22 @@ DB_PATH = r"C:/Users/Thabang/symbiont/a2a.db"
 # worker mid-job (claude's scrape_build runs take minutes) does not trip it.
 STALL_SECONDS = 900
 
+def _connect():
+    """Every broker connection goes through here.
+
+    ponytail: timeout=30 only. Concurrent workers were hitting the default 5s and
+    losing claims; upgrade path is a per-route timeout if any endpoint needs one.
+    """
+    return sqlite3.connect(DB_PATH, timeout=30)
+
+
 def init_db():
-    conn = sqlite3.connect(DB_PATH)
+    conn = _connect()
+    # WAL is persistent in the file header, so one call here is enough for every
+    # later connection; readers/writers no longer block each other across the
+    # claim/complete round trip. Readers opened with mode=ro keep working.
     c = conn.cursor()
+    c.execute("PRAGMA journal_mode=WAL")
     c.execute("""CREATE TABLE IF NOT EXISTS agents (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         name TEXT UNIQUE,
@@ -100,7 +113,7 @@ class A2AHandler(BaseHTTPRequestHandler):
         if not auth.startswith("Bearer ") or ":" not in auth:
             return None
         agent, token = auth.replace("Bearer ", "").split(":", 1)
-        conn = sqlite3.connect(DB_PATH)
+        conn = _connect()
         ok = conn.execute("SELECT name FROM agents WHERE name = ? AND token = ?", (agent, token)).fetchone()
         conn.close()
         return agent if ok else None
@@ -131,7 +144,7 @@ class A2AHandler(BaseHTTPRequestHandler):
         elif path == "/health/queue":
             # Backlog went unnoticed for days because nothing surfaced it. Anything
             # reading this should alert when `stalled` is true.
-            conn = sqlite3.connect(DB_PATH)
+            conn = _connect()
             c = conn.cursor()
             rows = c.execute("""SELECT to_agent, COUNT(*), MIN(created_at)
                                 FROM tasks WHERE status = 'pending' GROUP BY to_agent""").fetchall()
@@ -149,7 +162,7 @@ class A2AHandler(BaseHTTPRequestHandler):
         elif path == "/status":
             self.send_json(200, {"status": "ok", "broker": "a2a-broker-v2", "uptime": time.time()})
         elif path == "/channels":
-            conn = sqlite3.connect(DB_PATH)
+            conn = _connect()
             c = conn.cursor()
             c.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='channels'")
             channels = [r[0] for r in c.fetchall()]
@@ -160,7 +173,7 @@ class A2AHandler(BaseHTTPRequestHandler):
             unread = params.get("unread", "false").lower() == "true"
             channel = params.get("channel")
             
-            conn = sqlite3.connect(DB_PATH)
+            conn = _connect()
             c = conn.cursor()
             where = ["recipient = ?", "read_by IS NULL"] if unread else ["recipient = ?"]
             args = [agent]
@@ -173,7 +186,7 @@ class A2AHandler(BaseHTTPRequestHandler):
             self.send_json(200, {"messages": msgs})
         elif path == "/mailbox":
             agent = params.get("agent")
-            conn = sqlite3.connect(DB_PATH)
+            conn = _connect()
             c = conn.cursor()
             c.execute("SELECT message_id, content, delivered_at FROM mailbox WHERE agent = ?", (agent,))
             msgs = [{"id": r[0], "content": r[1], "delivered_at": r[2]} for r in c.fetchall()]
@@ -182,7 +195,7 @@ class A2AHandler(BaseHTTPRequestHandler):
         elif path == "/memory":
             agent = params.get("agent")
             search = params.get("search")
-            conn = sqlite3.connect(DB_PATH)
+            conn = _connect()
             c = conn.cursor()
             if search:
                 c.execute("SELECT key, value FROM memory WHERE agent = ? AND (key LIKE ? OR value LIKE ?)", 
@@ -193,14 +206,14 @@ class A2AHandler(BaseHTTPRequestHandler):
             conn.close()
             self.send_json(200, {"memory": mem})
         elif path == "/tasks":
-            conn = sqlite3.connect(DB_PATH)
+            conn = _connect()
             c = conn.cursor()
             c.execute("SELECT id, channel, from_agent, to_agent, content, status, claimed_by, result FROM tasks")
             tasks = [dict(zip(["id","channel","from_agent","to_agent","content","status","claimed_by","result"], r)) for r in c.fetchall()]
             conn.close()
             self.send_json(200, {"tasks": tasks})
         elif path == "/tools":
-            conn = sqlite3.connect(DB_PATH)
+            conn = _connect()
             c = conn.cursor()
             c.execute("SELECT name, owner, description FROM tools ORDER BY name")
             tools = [{"name": r[0], "owner": r[1], "description": r[2]} for r in c.fetchall()]
@@ -211,7 +224,7 @@ class A2AHandler(BaseHTTPRequestHandler):
             if not auth.startswith("Bearer "):
                 self.send_json(401, {"error": "auth required"})
                 return
-            conn = sqlite3.connect(DB_PATH)
+            conn = _connect()
             c = conn.cursor()
             c.execute("SELECT name, capabilities FROM agents")
             agents = [{"name": r[0], "capabilities": json.loads(r[1])} for r in c.fetchall()]
@@ -247,7 +260,7 @@ class A2AHandler(BaseHTTPRequestHandler):
                 return
 
             token = secrets.token_hex(32)
-            conn = sqlite3.connect(DB_PATH)
+            conn = _connect()
             c = conn.cursor()
             if c.execute("SELECT 1 FROM agents WHERE name = ?", (name,)).fetchone():
                 conn.close()
@@ -267,7 +280,7 @@ class A2AHandler(BaseHTTPRequestHandler):
             
             sender, token = auth.replace("Bearer ", "").split(":", 1)
             
-            conn = sqlite3.connect(DB_PATH)
+            conn = _connect()
             c = conn.cursor()
             c.execute("SELECT name FROM agents WHERE name = ? AND token = ?", (sender, token))
             if not c.fetchone():
@@ -298,7 +311,7 @@ class A2AHandler(BaseHTTPRequestHandler):
             agent, token = auth.replace("Bearer ", "").split(":", 1)
             msg_ids = data.get("message_ids", [])
             
-            conn = sqlite3.connect(DB_PATH)
+            conn = _connect()
             c = conn.cursor()
             c.execute("SELECT name FROM agents WHERE name = ? AND token = ?", (agent, token))
             if not c.fetchone():
@@ -318,7 +331,7 @@ class A2AHandler(BaseHTTPRequestHandler):
                 return
             
             agent, token = auth.replace("Bearer ", "").split(":", 1)
-            conn = sqlite3.connect(DB_PATH)
+            conn = _connect()
             c = conn.cursor()
             c.execute("SELECT name FROM agents WHERE name = ? AND token = ?", (agent, token))
             if not c.fetchone():
@@ -341,7 +354,7 @@ class A2AHandler(BaseHTTPRequestHandler):
             agent, token = auth.replace("Bearer ", "").split(":", 1)
             task_id = data.get("task_id")
             
-            conn = sqlite3.connect(DB_PATH)
+            conn = _connect()
             c = conn.cursor()
             c.execute("SELECT name FROM agents WHERE name = ? AND token = ?", (agent, token))
             if not c.fetchone():
@@ -371,8 +384,7 @@ class A2AHandler(BaseHTTPRequestHandler):
             if not agent:
                 self.send_json(401, {"error": "invalid credentials"})
                 return
-            conn = sqlite3.connect(DB_PATH)
-            conn.execute("PRAGMA busy_timeout = 5000")
+            conn = _connect()
             c = conn.cursor()
             row = c.execute("""SELECT id FROM tasks
                                WHERE status = 'pending' AND (to_agent = ? OR to_agent IS NULL)
@@ -401,7 +413,7 @@ class A2AHandler(BaseHTTPRequestHandler):
 
             agent, token = auth.replace("Bearer ", "").split(":", 1)
             task_id = data.get("task_id")
-            conn = sqlite3.connect(DB_PATH)
+            conn = _connect()
             c = conn.cursor()
             c.execute("SELECT name FROM agents WHERE name = ? AND token = ?", (agent, token))
             if not c.fetchone():
@@ -447,7 +459,7 @@ class A2AHandler(BaseHTTPRequestHandler):
             if not name:
                 self.send_json(400, {"error": "name required"})
                 return
-            conn = sqlite3.connect(DB_PATH)
+            conn = _connect()
             conn.execute("REPLACE INTO tools (name, owner, description, command, created_at) VALUES (?,?,?,?,?)",
                          (name, agent, data.get("description", ""), data.get("command", ""), time.time()))
             conn.commit()
@@ -464,7 +476,7 @@ class A2AHandler(BaseHTTPRequestHandler):
                 return
             name = data.get("tool")
             args = data.get("args", "")
-            conn = sqlite3.connect(DB_PATH)
+            conn = _connect()
             row = conn.execute("SELECT owner, description, command FROM tools WHERE name = ?", (name,)).fetchone()
             if not row:
                 conn.close()
@@ -486,7 +498,7 @@ class A2AHandler(BaseHTTPRequestHandler):
             self.send_json(200, {"tool": name, "delegated": True, "owner": owner, "task_id": task_id})
 
         elif path == "/channel":
-            conn = sqlite3.connect(DB_PATH)
+            conn = _connect()
             c = conn.cursor()
             name = data.get("name")
             if name:
@@ -509,7 +521,7 @@ class A2AHandler(BaseHTTPRequestHandler):
             key = data.get("key")
             value = data.get("value")
             
-            conn = sqlite3.connect(DB_PATH)
+            conn = _connect()
             c = conn.cursor()
             c.execute("SELECT name FROM agents WHERE name = ? AND token = ?", (agent, token))
             if not c.fetchone():
@@ -532,7 +544,7 @@ class A2AHandler(BaseHTTPRequestHandler):
             recipient = data.get("agent")
             content = data.get("content")
             
-            conn = sqlite3.connect(DB_PATH)
+            conn = _connect()
             c = conn.cursor()
             c.execute("SELECT name FROM agents WHERE name = ? AND token = ?", (sender, token))
             if not c.fetchone():
