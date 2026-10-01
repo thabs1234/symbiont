@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """A2A Broker v2 - Agent-to-Agent message broker with SQLite persistence"""
 import re, sqlite3, json, hashlib, secrets, time, os
-from http.server import HTTPServer, BaseHTTPRequestHandler
+from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse
 import threading
 
@@ -596,7 +596,9 @@ class A2AHandler(BaseHTTPRequestHandler):
             self.send_json(404, {"error": "not found"})
 
 def run_server(port=20129):
-    server = HTTPServer(("127.0.0.1", port), A2AHandler)
+    server = ThreadingHTTPServer(("127.0.0.1", port), A2AHandler)
+    server.daemon_threads = True
+    server.allow_reuse_address = True
     print(f"A2A Broker v2 running on http://127.0.0.1:{port}")
     server.serve_forever()
 
