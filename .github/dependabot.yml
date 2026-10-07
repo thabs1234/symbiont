@@ -1,0 +1,32 @@
+version: 2
+updates:
+  - package-ecosystem: "pip"
+    directory: "/"
+    schedule:
+      interval: "daily"
+    open-pull-requests-limit: 10
+    commit-message:
+      prefix: "deps"
+    labels:
+      - "dependencies"
+      - "automerge"
+    reviewers:
+      - "self"
+    assignees:
+      - "self"
+    ignore:
+      - dependency-name: "yt-dlp"
+        versions: ["<2023.00.00"]  # Pin to recent versions if needed
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "daily"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "deps"
+    labels:
+      - "dependencies"
+      - "automerge"
+    ignore:
+      - dependency-name: "*"
+        versions: ["<1.0.0"]  # Example ignore pattern
