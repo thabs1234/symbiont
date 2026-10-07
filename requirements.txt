@@ -19,5 +19,5 @@ pytest>=7.0.0
 flake8>=6.0.0
 
 # For building
-build>=0.10.0
+build>=1.6.1
 twine>=4.0.0
