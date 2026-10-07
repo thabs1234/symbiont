@@ -20,4 +20,4 @@ flake8>=6.0.0
 
 # For building
 build>=0.10.0
-twine>=4.0.0
+twine>=7.0.0
