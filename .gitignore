@@ -1,0 +1,10 @@
+.agent_tokens.json
+*.db
+*.db-shm
+*.db-wal
+node_modules/
+__pycache__/
+*.bak-*
+_*.txt
+*.out
+OpenMontage/

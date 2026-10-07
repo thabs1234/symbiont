@@ -1,0 +1,15 @@
+# TikTok @SatriaAbaharii
+
+- **URL**: https://www.tiktok.com/@SatriaAbaharii
+- **Title**: Satria Abaharii - Video TikTok
+- **Duration**: 12.4s
+- **Upload date**: 20251007
+- **Views**: 128400
+- **Likes**: 34210
+- **Comments**: 2870
+- **Shares**: 1540
+- **Uploader**: Satria Abaharii
+
+## Description
+
+TikTok video by Satria Abaharii - test fixture for A2A artifact pipeline

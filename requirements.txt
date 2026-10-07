@@ -1,0 +1,23 @@
+# Core dependencies for the symbiont project
+# Add your project-specific dependencies here
+
+# For A2A functionality (if needed as a package, but we have local)
+# No external deps for a2a_client.py (stdlib only)
+
+# For web scraping and automation
+yt-dlp>=2023.00.00
+selenium>=4.0.0
+requests>=2.25.0
+aiohttp>=3.8.0
+ffmpeg-python>=0.2.0
+
+# For WhatsApp (if using baileys or similar, adjust as needed)
+# whatsapp-web.js is Node.js, so not here
+
+# For testing
+pytest>=7.0.0
+flake8>=6.0.0
+
+# For building
+build>=0.10.0
+twine>=4.0.0
