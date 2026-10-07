@@ -8,7 +8,7 @@
 yt-dlp>=2023.00.00
 selenium>=4.0.0
 requests>=2.25.0
-aiohttp>=3.8.0
+aiohttp>=3.14.3
 ffmpeg-python>=0.2.0
 
 # For WhatsApp (if using baileys or similar, adjust as needed)
