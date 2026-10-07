@@ -16,7 +16,7 @@ ffmpeg-python>=0.2.0
 
 # For testing
 pytest>=7.0.0
-flake8>=6.0.0
+flake8>=7.4.1
 
 # For building
 build>=0.10.0
