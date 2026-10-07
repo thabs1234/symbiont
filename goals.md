@@ -19,5 +19,4 @@ claims in it checked against source, not restated from the caption.
 yt-dlp Python API with `extractor_args={'tiktok':{'webpage_download':['true']}}` and `cookiefile: NONE`
 extracts without cookies or 403. No subs on that video, so local faster-whisper filled the gap.
 
-**Open:** no `a2a_client.py` yet, so agents shell out to `curl` against the broker. Worth a client
-lib if this goal is going to see more traffic.
+**A2A client:** `a2a_client.py` built (CLI + module). Agents use `python a2a_client.py claim|done|send|status` instead of raw `curl`.

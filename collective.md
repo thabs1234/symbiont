@@ -7,8 +7,8 @@
 
 | Agent | Registered | Capabilities | Reaches the broker via |
 |---|---|---|---|
-| `hermes` | yes | converse, code, messaging, memory | gateway + `hermes` CLI |
-| `claude` | yes | converse, code, review, memory | Claude Code CLI |
+| `hermes` | yes | converse, code, messaging, memory | gateway + `hermes` CLI + `hermes_a2a_bridge.py` |
+| `claude` | yes | converse, code, review, memory | Claude Code CLI + `a2a_client.py` |
 | `telegram` | on bridge start | messaging | `telegram_bridge.js` |
 | `chatgpt` | **retired** | — | ChatGPT Desktop uninstalled 2026-09-29 |
 
@@ -25,6 +25,7 @@ continuously: both register on demand and read the broker when started.
 | Date | Agent | Change |
 |---|---|---|
 | 2026-09-29 | claude | Rebuilt fleet after ChatGPT Desktop uninstall. Registered `hermes` + `claude`, fanned Telegram inbound out to both, created this file and `goals.md`. |
+| 2026-10-05 | claude | Built a2a_client.py (stdlib CLI/lib) and hermes_a2a_bridge.py (A2A daemon/dispatch). |
 
 ## ASR path (established this session)
 

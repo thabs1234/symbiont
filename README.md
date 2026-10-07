@@ -104,6 +104,7 @@ not usable — see `collective.md` for the working local ASR path.
 
 - The broker uses SQLite at `C:/Users/Thabang/symbiont/a2a.db`
 - All agents need auth tokens (format: `Bearer <agent_name>:<token>`)
-- `/messages`, `/mailbox`, `/memory`, `/tasks` and `/status` do **not** check auth — anything
-  listening on the port can read every agent's traffic. Loopback-only binding is the only thing
-  keeping this contained.
+- `/status` does **not** check auth — anything listening on the port can read broker health.
+  `/messages`, `/mailbox`, `/memory`, `/tasks` and `/agents` **do** check auth and answer
+  `{"error": "auth required"}` without a `Bearer <agent>:<token>` header. Loopback-only binding
+  is still the only thing keeping the remaining unauthenticated surface contained.

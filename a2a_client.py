@@ -1,111 +1,150 @@
 #!/usr/bin/env python3
-"""A2A broker client. stdlib only.
+"""A2A Client - Agent-to-Agent interface for the symbiosis broker on :20129.
 
-Auth header is `Bearer <name>:<token>` — the broker splits on the first colon
-(a2a_broker.py:184), so a bare token 401s on every write path.
+Stdlib only. Usable as CLI and Python module.
 """
-import json, sys, time, urllib.request, urllib.error
+import sys
+import os
+import json
+import urllib.request
+import urllib.error
 
-BROKER = "http://127.0.0.1:20129"
-TOKENS = r"C:/Users/Thabang/symbiont/.agent_tokens.json"
+BROKER_URL = os.environ.get("A2A_BROKER", "http://127.0.0.1:20129")
+TOKENS_PATH = os.environ.get("A2A_TOKENS", r"C:/Users/Thabang/symbiont/.agent_tokens.json")
+DEFAULT_AGENT = os.environ.get("A2A_AGENT", "claude")
 
 
-def token(name):
-    with open(TOKENS, encoding="utf-8-sig") as f:
-        return json.load(f)[name]
+class A2AClient:
+    def __init__(self, agent=DEFAULT_AGENT, broker=BROKER_URL, tokens_path=TOKENS_PATH):
+        self.agent = agent
+        self.broker = broker.rstrip("/")
+        self.tokens_path = tokens_path
+        self._token = None
 
+    @property
+    def token(self):
+        if not self._token:
+            if os.path.exists(self.tokens_path):
+                with open(self.tokens_path, "r", encoding="utf-8-sig") as f:
+                    tokens = json.load(f)
+                    self._token = tokens.get(self.agent)
+        return self._token
 
-def call(path, body=None, agent=None, method=None):
-    url = BROKER + path
-    data = json.dumps(body).encode() if body is not None else None
-    req = urllib.request.Request(url, data=data, method=method or ("POST" if data else "GET"))
-    req.add_header("Content-Type", "application/json")
-    if agent:
-        req.add_header("Authorization", f"Bearer {agent}:{token(agent)}")
-    try:
-        with urllib.request.urlopen(req, timeout=10) as r:
-            return json.loads(r.read())
-    except urllib.error.HTTPError as e:
-        return {"error": e.read().decode()}
+    def _request(self, path, method="GET", data=None, auth=True):
+        url = f"{self.broker}{path}"
+        headers = {"Content-Type": "application/json"}
+        if auth and self.token:
+            headers["Authorization"] = f"Bearer {self.agent}:{self.token}"
+
+        body = json.dumps(data).encode("utf-8") if data is not None else None
+        req = urllib.request.Request(url, data=body, headers=headers, method=method)
+        try:
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                return json.loads(resp.read().decode("utf-8"))
+        except urllib.error.HTTPError as e:
+            err_body = e.read().decode("utf-8")
+            try:
+                err_json = json.loads(err_body)
+                return {"error": err_json.get("error", str(e)), "code": e.code}
+            except Exception:
+                return {"error": err_body or str(e), "code": e.code}
+        except Exception as e:
+            return {"error": str(e), "code": 500}
+
+    def status(self):
+        return self._request("/status", auth=False)
+
+    def queue_health(self):
+        return self._request("/health/queue", auth=False)
+
+    def send(self, to, content, channel="general"):
+        return self._request("/send", method="POST", data={"to": to, "content": content, "channel": channel})
+
+    def messages(self, unread=True, channel=None):
+        path = f"/messages?agent={self.agent}&unread={'true' if unread else 'false'}"
+        if channel:
+            path += f"&channel={channel}"
+        return self._request(path)
+
+    def mark_read(self, message_ids):
+        return self._request("/read", method="POST", data={"message_ids": message_ids})
+
+    def create_task(self, to, content, channel="general"):
+        return self._request("/task", method="POST", data={"to": to, "content": content, "channel": channel})
+
+    def claim_next(self):
+        return self._request("/task/claim-next", method="POST", data={})
+
+    def claim(self, task_id):
+        return self._request("/task/claim", method="POST", data={"task_id": int(task_id)})
+
+    def done(self, task_id, result=""):
+        return self._request("/task/complete", method="POST", data={"task_id": int(task_id), "result": result})
+
+    def memory_store(self, key, value):
+        return self._request("/memory/store", method="POST", data={"key": key, "value": value})
+
+    def memory_get(self, search=None):
+        path = f"/memory?agent={self.agent}"
+        if search:
+            path += f"&search={search}"
+        return self._request(path)
 
 
 def main():
-    if len(sys.argv) < 2:
-        print(__doc__)
-        print("usage: a2a_client.py <cmd> [args]   (agent name from $A2A_AGENT, default claude)")
-        return 1
+    args = sys.argv[1:]
+    if not args or args[0] in ("-h", "--help"):
+        print("Usage:")
+        print("  a2a_client.py claim                  # Claim next pending task for this agent")
+        print("  a2a_client.py done <task_id> <result># Complete task")
+        print("  a2a_client.py send <to> <content>    # Send A2A message")
+        print("  a2a_client.py messages [--unread]    # Fetch messages")
+        print("  a2a_client.py task <to> <content>    # Create a task")
+        print("  a2a_client.py status                 # Broker status + queue health")
+        return 0
 
-    cmd = sys.argv[1]
-    import os
-    me = os.environ.get("A2A_AGENT", "claude")
-    rest = sys.argv[2:]
+    cmd = args[0]
+    client = A2AClient()
 
-    if cmd == "send":
-        print(json.dumps(call("/send", {"to": rest[0], "content": " ".join(rest[1:])}, agent=me)))
-    elif cmd == "inbox":
-        msgs = call(f"/messages?agent={me}{'&unread=true' if '--unread' in rest else ''}", agent=me)["messages"]
-        for m in msgs:
-            print(f"[{m['id']}] {m['from']} ({m['channel']}): {m['content']}")
-        if not msgs:
-            print("(empty)")
-    elif cmd == "read":
-        ids = [int(i) for i in rest]
-        print(json.dumps(call("/read", {"message_ids": ids}, agent=me)))
-    elif cmd == "agents":
-        print(json.dumps(call("/agents", agent=me), indent=2))
-    elif cmd == "tasks":
-        print(json.dumps(call("/tasks", agent=me), indent=2))
-    elif cmd == "task":
-        print(json.dumps(call("/task", {"to": rest[0], "content": " ".join(rest[1:]),
-                                        "channel": os.environ.get("A2A_CHANNEL", "general")},
-                              agent=me)))
-    elif cmd == "review":
-        # Request the return trip. channel=review is what makes the broker auto-file
-        # a task back to claude when this task is completed.
-        print(json.dumps(call("/task", {"to": rest[0], "content": " ".join(rest[1:]),
-                                        "channel": "review"}, agent=me)))
-    elif cmd == "tools":
-        found = call("/tools", agent=me)["tools"]
-        for t in found:
-            mine = " (mine)" if t["owner"] == me else ""
-            print(f"{t['name']} -> {t['owner']}{mine}: {t['description']}")
-        if not found:
-            print("(no tools registered)")
-    elif cmd == "regtool":
-        print(json.dumps(call("/tool", {"name": rest[0], "description": " ".join(rest[1:2]),
-                                        "command": rest[2] if len(rest) > 2 else ""}, agent=me)))
-    elif cmd == "use":
-        # Shared tool call. Owned by you -> we hand you the command to run.
-        # Owned by someone else -> it becomes a task for them and you get the id back.
-        print(json.dumps(call("/tools/invoke", {"tool": rest[0], "args": " ".join(rest[1:])}, agent=me)))
-    elif cmd == "claim":
-        # Broker has no "next for me" endpoint: pick locally, claim by id.
-        # 409 means another agent won the race, so keep walking the list.
-        for t in call("/tasks", agent=me)["tasks"]:
-            if t["status"] == "pending" and t["to_agent"] in (None, "", me):
-                r = call("/task/claim", {"task_id": t["id"]}, agent=me)
-                if "task_id" in r:
-                    print(json.dumps(r))
-                    break
-        else:
-            print(json.dumps({"error": "no pending task"}))
+    if cmd == "claim":
+        res = client.claim_next()
+        print(json.dumps(res, indent=2))
     elif cmd == "done":
-        print(json.dumps(call("/task/complete",
-                              {"task_id": int(rest[0]), "result": " ".join(rest[1:]) or None},
-                              agent=me)))
-    elif cmd == "watch":
-        # long-poll unread, auto-mark so the same message isn't re-delivered
-        seen = set()
-        while True:
-            for m in call(f"/messages?agent={me}&unread=true", agent=me)["messages"]:
-                if m["id"] not in seen:
-                    seen.add(m["id"])
-                    print(f"[{m['id']}] {m['from']}: {m['content']}", flush=True)
-                    call("/read", {"message_ids": [m["id"]]}, agent=me)
-            time.sleep(float(rest[0]) if rest else 2)
+        if len(args) < 2:
+            print("Error: task_id required", file=sys.stderr)
+            return 1
+        task_id = args[1]
+        res_str = " ".join(args[2:]) if len(args) > 2 else "done"
+        res = client.done(task_id, res_str)
+        print(json.dumps(res, indent=2))
+    elif cmd == "send":
+        if len(args) < 3:
+            print("Error: to and content required", file=sys.stderr)
+            return 1
+        to = args[1]
+        content = " ".join(args[2:])
+        res = client.send(to, content)
+        print(json.dumps(res, indent=2))
+    elif cmd == "messages":
+        unread = "--all" not in args
+        res = client.messages(unread=unread)
+        print(json.dumps(res, indent=2))
+    elif cmd == "task":
+        if len(args) < 3:
+            print("Error: to and content required", file=sys.stderr)
+            return 1
+        to = args[1]
+        content = " ".join(args[2:])
+        res = client.create_task(to, content)
+        print(json.dumps(res, indent=2))
+    elif cmd == "status":
+        s = client.status()
+        q = client.queue_health()
+        print(json.dumps({"status": s, "queue": q}, indent=2))
     else:
-        print(f"unknown cmd: {cmd}", file=sys.stderr)
+        print(f"Unknown command: {cmd}", file=sys.stderr)
         return 1
+
     return 0
 
 
