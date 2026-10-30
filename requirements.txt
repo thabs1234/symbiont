@@ -5,7 +5,7 @@
 # No external deps for a2a_client.py (stdlib only)
 
 # For web scraping and automation
-yt-dlp>=2023.00.00
+yt-dlp>=2026.10.26
 selenium>=4.0.0
 requests>=2.25.0
 aiohttp>=3.8.0
