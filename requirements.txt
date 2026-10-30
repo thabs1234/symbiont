@@ -15,7 +15,7 @@ ffmpeg-python>=0.2.0
 # whatsapp-web.js is Node.js, so not here
 
 # For testing
-pytest>=7.0.0
+pytest>=9.2.0
 flake8>=6.0.0
 
 # For building
